@@ -1,0 +1,104 @@
+Resources:
+  ECSCluster:
+    Type: 'AWS::ECS::Cluster'
+    Properties:
+      ClusterName:!Ref ClusterName
+
+  ECRRepository:
+    Type: 'AWS::ECR::Repository'
+    Properties:
+      RepositoryName:!Ref ECRRepositoryName
+
+  TaskDefinition:
+    Type: 'AWS::ECS::TaskDefinition'
+    Properties:
+      Family:!Ref TaskDefinitionFamily
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu:!Ref TaskCPU
+      Memory:!Ref TaskMemory
+      ContainerDefinitions:
+        - Name: kaleidoscope-backend
+          Image:!Sub ${AWS::Account}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepositoryName}:latest
+          PortMappings:
+            - ContainerPort: 8080
+              HostPort: 8080
+              Protocol: tcp
+          Essential: true
+          Environment:
+            - Name: REDIS_URL
+              Value:!Ref RedisURL # Update if using ElastiCache
+
+  ECSService:
+    Type: 'AWS::ECS::Service'
+    Properties:
+      Cluster:!Ref ECSCluster
+      ServiceName:!Ref ServiceName
+      DesiredCount:!Ref DesiredCount
+      TaskDefinition:!Ref TaskDefinition
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:!Ref Subnets
+          SecurityGroups:!Ref SecurityGroups
+          AssignPublicIp: ENABLED
+
+  LoadBalancer:
+    Type: 'AWS::ElasticLoadBalancingV2::LoadBalancer'
+    Properties:
+      Subnets:!Ref Subnets
+      SecurityGroups:!Ref SecurityGroups
+      Scheme: internet-facing
+      Type: application
+
+  TargetGroup:
+    Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
+    Properties:
+      Port: 8080
+      Protocol: HTTP
+      VpcId:!Ref VPC
+      TargetType: ip
+      HealthCheckPath: /health # Update if your health check path is different
+
+  Listener:
+    Type: 'AWS::ElasticLoadBalancingV2::Listener'
+    Properties:
+      LoadBalancerArn:!Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn:!Ref TargetGroup
+
+Parameters:
+  ClusterName:
+    Type: String
+    Default: kaleidoscope-cluster
+  ECRRepositoryName:
+    Type: String
+    Default: kaleidoscope-backend
+  TaskDefinitionFamily:
+    Type: String
+    Default: kaleidoscope-backend
+  TaskCPU:
+    Type: String
+    Default: "512"
+  TaskMemory:
+    Type: String
+    Default: "1024"
+  ServiceName:
+    Type: String
+    Default: kaleidoscope-backend-service
+  DesiredCount:
+    Type: Number
+    Default: 2
+  RedisURL:
+    Type: String
+    Default: redis://your-redis-endpoint:6379 # Update if using ElastiCache
+  VPC:
+    Type: AWS::EC2::VPC::Id
+  Subnets:
+    Type: List<AWS::EC2::Subnet::Id>
+  SecurityGroups:
+    Type: List<AWS::EC2::SecurityGroup::Id>
